@@ -5,6 +5,7 @@ import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from PIL import Image
+from tqdm import tqdm
 
 # Download the CelebA dataset
 url = "https://www.dropbox.com/s/d1kjpkqklf0uw77/celeba.zip?dl=1"
@@ -15,16 +16,6 @@ urllib.request.urlretrieve(url, filename)
 with tarfile.open(filename, "r") as tar:
     tar.extractall()
 os.remove(filename)
-
-# Define the path to the images directory
-images_dir = "img_align_celeba"
-
-# List all the image file names
-image_files = os.listdir(images_dir)
-
-# Print the total number of images
-print("Total number of images:", len(image_files))
-
 
 # Define the path to the images directory
 images_dir = "img_align_celeba"
@@ -54,7 +45,7 @@ def preprocess_image(image_file):
 
 # Create a dataset of preprocessed images
 image_files = os.listdir(images_dir)
-images = np.array([preprocess_image(file) for file in image_files])
+images = np.array([preprocess_image(file) for file in tqdm(image_files)])
 dataset = tf.data.Dataset.from_tensor_slices(images)
 dataset = dataset.shuffle(buffer_size=len(images)).batch(batch_size)
 
@@ -94,7 +85,6 @@ def make_discriminator_model():
     model.add(tf.keras.layers.Conv2D(64, (5, 5), strides=(2, 2), padding='same', input_shape=[img_size, img_size, 3]))
     model.add(tf.keras.layers.LeakyReLU())
     model.add(tf.keras.layers.Dropout(0.3))
-
     model.add(tf.keras.layers.Conv2D(128, (5, 5), strides=(2, 2), padding='same'))
     model.add(tf.keras.layers.LeakyReLU())
     model.add(tf.keras.layers.Dropout(0.3))
@@ -112,19 +102,11 @@ def make_discriminator_model():
 
     return model
 
-
-# Define the loss functions and optimizers
-cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-
-generator_optimizer = tf.keras.optimizers.Adam(1e-4)
+discriminator = make_discriminator_model()
 discriminator_optimizer = tf.keras.optimizers.Adam(1e-4)
 
-# Define the GAN model
-generator = make_generator_model()
-discriminator = make_discriminator_model()
-
-def generator_loss(fake_output):
-    return cross_entropy(tf.ones_like(fake_output), fake_output)
+# Define the loss functions for the generator and discriminator
+cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
 def discriminator_loss(real_output, fake_output):
     real_loss = cross_entropy(tf.ones_like(real_output), real_output)
@@ -132,41 +114,58 @@ def discriminator_loss(real_output, fake_output):
     total_loss = real_loss + fake_loss
     return total_loss
 
+generator_optimizer = tf.keras.optimizers.Adam(1e-4)
+
+def generator_loss(fake_output):
+    return cross_entropy(tf.ones_like(fake_output), fake_output)
+
+# Define the training loop
 @tf.function
 def train_step(images):
+    # Generate a batch of noise vectors
     noise = tf.random.normal([batch_size, 100])
 
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+        # Generate a batch of fake images
         generated_images = generator(noise, training=True)
 
+        # Get the discriminator's output on the real images
         real_output = discriminator(images, training=True)
+
+        # Get the discriminator's output on the fake images
         fake_output = discriminator(generated_images, training=True)
 
+        # Calculate the losses for the generator and discriminator
         gen_loss = generator_loss(fake_output)
         disc_loss = discriminator_loss(real_output, fake_output)
 
+    # Calculate the gradients for the generator and discriminator
     gradients_of_generator = gen_tape.gradient(gen_loss, generator.trainable_variables)
     gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
 
+    # Apply the gradients to the optimizer
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
 
-# Train the GAN model
+
+# Train the model
+generator = make_generator_model()
+
 for epoch in range(num_epochs):
     for batch in dataset:
         train_step(batch)
 
-    # Generate a sample of artificial faces
-    noise = tf.random.normal([batch_size, 100])
+    # Generate a batch of fake images
+    noise = tf.random.normal([16, 100])
     generated_images = generator(noise, training=False)
+
+    # Rescale the pixel values to [0, 1]
     generated_images = (generated_images + 1.0) / 2.0
-    generated_images = generated_images.numpy()
 
-    # Postprocess the generated faces
-    for i in range(len(generated_images)):
-        generated_images[i] = np.clip(generated_images[i] * 255.0, 0.0, 255.0)
-        generated_images[i] = generated_images[i].astype(np.uint8)
-
-    # Output the generated faces to a file
-    for i in range(len(generated_images)):
-        plt.imsave(f"generated_faces/face_{epoch}_{i}.png", generated_images[i])
+    # Plot the generated images
+    fig, ax = plt.subplots(4, 4, figsize=(10, 10))
+    for i in range(4):
+        for j in range(4):
+            ax[i, j].imshow(generated_images[i * 4 + j])
+            ax[i, j].axis("off")
+    plt.show()
