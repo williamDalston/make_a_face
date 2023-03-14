@@ -7,18 +7,9 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from tqdm import tqdm
 
-# Download the CelebA dataset
-url = "https://www.dropbox.com/s/d1kjpkqklf0uw77/celeba.zip?dl=1"
-filename = "celeba.zip"
-urllib.request.urlretrieve(url, filename)
-
-# Extract the dataset
-with tarfile.open(filename, "r") as tar:
-    tar.extractall()
-os.remove(filename)
 
 # Define the path to the images directory
-images_dir = "img_align_celeba"
+images_dir = "/Users/alston/Desktop/celeba/images"
 
 # Define the image size
 img_size = 64
@@ -147,13 +138,19 @@ def train_step(images):
     generator_optimizer.apply_gradients(zip(gradients_of_generator, generator.trainable_variables))
     discriminator_optimizer.apply_gradients(zip(gradients_of_discriminator, discriminator.trainable_variables))
 
+    return gen_loss, disc_loss
 
 # Train the model
 generator = make_generator_model()
 
 for epoch in range(num_epochs):
+    gen_loss_avg = tf.keras.metrics.Mean()
+    disc_loss_avg = tf.keras.metrics.Mean()
+
     for batch in dataset:
-        train_step(batch)
+        gen_loss, disc_loss = train_step(batch)
+        gen_loss_avg(gen_loss)
+        disc_loss_avg(disc_loss)
 
     # Generate a batch of fake images
     noise = tf.random.normal([16, 100])
@@ -169,3 +166,6 @@ for epoch in range(num_epochs):
             ax[i, j].imshow(generated_images[i * 4 + j])
             ax[i, j].axis("off")
     plt.show()
+
+    # Print the losses for this epoch
+    print(f"Epoch {epoch + 1}: Generator loss: {gen_loss_avg.result()}, Discriminator loss: {disc_loss_avg.result()}")
